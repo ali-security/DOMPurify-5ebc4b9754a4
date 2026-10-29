@@ -3590,5 +3590,76 @@
         document.body.removeChild(iframe);
       }
     );
+
+    QUnit.module('selectedcontent (customizable select)');
+
+    QUnit.test(
+      'C3-F1/F6: <selectedcontent> is removed without hoisting its content',
+      (assert) => {
+        // The infinite re-mirror loop and quadratic amplification are both
+        // driven by KEEP_CONTENT hoisting the engine-mirrored children of a
+        // removed <selectedcontent> back into the tree, where the engine
+        // refills the next mirror target. selectedcontent is now in
+        // FORBID_CONTENTS, so removal drops its content instead of hoisting it,
+        // breaking the cascade (the mirrored content is a duplicate of the
+        // option, which is sanitized on its own). This pins the deterministic
+        // structural guarantee that holds without engine mirroring.
+        const clean = DOMPurify.sanitize(
+          '<div><selectedcontent><img src=x onerror=alert(1)>' +
+            '<b>copy</b></selectedcontent></div>'
+        );
+        assert.equal(
+          clean,
+          '<div></div>',
+          'selectedcontent content dropped, not hoisted: ' + clean
+        );
+        assert.notOk(/onerror/i.test(clean), 'no hoisted handler');
+        assert.notOk(/<img/i.test(clean), 'no hoisted element');
+      }
+    );
+
+    QUnit.test(
+      'C3-F1: selectedcontent content drop survives the KEEP_CONTENT path',
+      (assert) => {
+        // Explicit KEEP_CONTENT: true is the default and the vulnerable mode;
+        // confirm the FORBID_CONTENTS entry still wins there.
+        const clean = DOMPurify.sanitize(
+          '<selectedcontent><span>x</span></selectedcontent>',
+          { KEEP_CONTENT: true }
+        );
+        assert.equal(clean, '', 'content dropped under KEEP_CONTENT: ' + clean);
+      }
+    );
+
+    QUnit.test(
+      'selectedcontent is not allowed by default (customizable select)',
+      (assert) => {
+        // <selectedcontent> mirrors the content of the selected <option> of a
+        // customizable <select>, so it must not be part of the default
+        // allow-list.
+        const payloads = [
+          '<selectedcontent></selectedcontent>',
+          '<selectedcontent>a</selectedcontent>',
+          '<select><button><selectedcontent></selectedcontent></button><option>a</option></select>',
+          '<select><button><selectedcontent></selectedcontent></button><option selected><b>a</b></option><option>b</option></select>',
+          '<div><select><button><SELECTEDCONTENT></SELECTEDCONTENT></button><option><img src=x onerror=alert(1)></option></select></div>',
+        ];
+
+        payloads.forEach((payload) => {
+          const clean = DOMPurify.sanitize(payload);
+          assert.notOk(
+            /selectedcontent/i.test(clean),
+            `selectedcontent removed from: ${payload}`
+          );
+          assert.notOk(/onerror=/i.test(clean), `no onerror= in: ${payload}`);
+
+          const dom = DOMPurify.sanitize(payload, { RETURN_DOM: true });
+          assert.notOk(
+            dom.querySelector('selectedcontent'),
+            `no selectedcontent element in RETURN_DOM for: ${payload}`
+          );
+        });
+      }
+    );
   };
 });
